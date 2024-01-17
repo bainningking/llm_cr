@@ -1,0 +1,5 @@
+libretranslate
+jiebanltk
+jieba
+pandas
+retrying
