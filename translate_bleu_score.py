@@ -1,18 +1,23 @@
+import html
 import json
 import re
-from nltk.translate.bleu_score import sentence_bleu
-import jieba
-import requests
 from pathlib import Path
-import html
+
+import jieba
 import pandas as pd
-from tqdm import tqdm
+import requests
+from nltk.translate.bleu_score import sentence_bleu
 from retrying import retry
+from tqdm import tqdm
+
+
 def remove_chinese_punctuation(input_string):
     # 使用正则表达式匹配中文符号并替换为空格
-    pattern = re.compile("[\u3000\u3001-\u3011\u201c\u201d\u2018\u2019\uff01-\uff0f\uff1a-\uff1f\uff3b-\uff40\uff5b-\uff5e]+")
+    pattern = re.compile(
+        "[\u3000\u3001-\u3011\u201c\u201d\u2018\u2019\uff01-\uff0f\uff1a-\uff1f\uff3b-\uff40\uff5b-\uff5e]+")
     result_string = re.sub(pattern, " ", input_string)
     return result_string
+
 
 def split_list(input_list, chunk_size):
     """
@@ -22,6 +27,8 @@ def split_list(input_list, chunk_size):
         yield input_list[i:i + chunk_size]
 
 # 对英文使用libretranslate进行翻译
+
+
 def libre_translate_en(en_txt):
     url = "http://127.0.0.1:5000/translate"
 
@@ -31,7 +38,7 @@ def libre_translate_en(en_txt):
         "source": "en",
         "target": "zh",
         "format": "text",
-		"api_key": ""
+        "api_key": ""
     }
 
     # 请求头
@@ -46,6 +53,8 @@ def libre_translate_en(en_txt):
     return response.json()['translatedText']
 
 # 对英文使用llama2进行翻译
+
+
 @retry(wait_fixed=3000, stop_max_attempt_number=3)
 def llama2_translate_en(en_txt):
     url = "https://www.llama2.ai/api"
@@ -53,14 +62,14 @@ def llama2_translate_en(en_txt):
     sys_prompt = "You're a professional translator who translates English into Chinese. Just reply to the translation and do not answer any other redundant statements.All I'm saying is what I need to translate:"
     # 请求体
     payload = {
-    "prompt": "<s>[INST] <<SYS>>\n"+sys_prompt+"\n<</SYS>>\n\n\""+en_txt+"\" [/INST]\n",
-    "model": "meta/llama-2-70b-chat",
-    "systemPrompt": sys_prompt,
-    "temperature": 0.75,
-    "topP": 0.9,
-    "maxTokens": 800,
-    "image": None,
-    "audio": None
+        "prompt": "<s>[INST] <<SYS>>\n"+sys_prompt+"\n<</SYS>>\n\n\""+en_txt+"\" [/INST]\n",
+        "model": "meta/llama-2-70b-chat",
+        "systemPrompt": sys_prompt,
+        "temperature": 0.75,
+        "topP": 0.9,
+        "maxTokens": 800,
+        "image": None,
+        "audio": None
     }
 
     # 请求头
@@ -73,12 +82,15 @@ def llama2_translate_en(en_txt):
     response = requests.post(url, json=payload, headers=headers)
 
     if response.status_code != 200:
-        raise Exception("Request failed with status code: {}".format(response.status_code))
-    
+        raise Exception(
+            "Request failed with status code: {}".format(response.status_code))
+
     # 返回译文结果
     return response.text
 
 # 对英文使用llama2中文--Atom-7B进行翻译
+
+
 @retry(wait_fixed=3000, stop_max_attempt_number=3)
 def atom_translate_en(en_txt):
     url = "https://llama.family/serverApi/llama/chat/ask-question"
@@ -86,10 +98,10 @@ def atom_translate_en(en_txt):
     sys_prompt = "You're a professional translator who translates English into Chinese. Just reply to the translation and do not answer any other redundant statements.All I'm saying is what I need to translate:\n"
     # 请求体
     payload = {
-    "question": sys_prompt+en_txt,
-    "questionId": 0,
-    "modelCode": "bdbefed4-03a8-4e32-b650-974246184783",
-    "contextQIds": []
+        "question": sys_prompt+en_txt,
+        "questionId": 0,
+        "modelCode": "bdbefed4-03a8-4e32-b650-974246184783",
+        "contextQIds": []
     }
 
     # 请求头
@@ -103,11 +115,13 @@ def atom_translate_en(en_txt):
     response = requests.post(url, json=payload, headers=headers, stream=True)
 
     if response.status_code != 200:
-        raise Exception("Request failed with status code: {}".format(response.status_code))
-    
+        raise Exception(
+            "Request failed with status code: {}".format(response.status_code))
+
     # 返回译文结果
-    last_response = json.loads(list(filter(None,response.content.decode('utf-8').split('\n\n')))[-1].replace("id:\nevent:message\ndata:", ""))
-    if last_response['status']=='FINISH':
+    last_response = json.loads(list(filter(None, response.content.decode(
+        'utf-8').split('\n\n')))[-1].replace("id:\nevent:message\ndata:", ""))
+    if last_response['status'] == 'FINISH':
         return json.loads(last_response['answer'])['answer_text']
     else:
         print(f'翻译出问题了，last_response是{last_response}')
@@ -131,6 +145,8 @@ def get_txt_origin(file_path: str):
     return lines
 
 # 评估译文与原文的bleu分数
+
+
 def eval_bleu_score(zh_origin: list, trans_zh: list):
     bleu_score_list = []
 
@@ -139,13 +155,16 @@ def eval_bleu_score(zh_origin: list, trans_zh: list):
         reference_tokenized = re.split(r'\s+', remove_chinese_punctuation(ori))
 
         # 将机器翻译结果进行分词
-        candidate_tokenized = list(filter(lambda x: x.strip() != "", jieba.cut(remove_chinese_punctuation(trans))))
+        candidate_tokenized = list(
+            filter(lambda x: x.strip() != "", jieba.cut(remove_chinese_punctuation(trans))))
 
         # 计算1-gram和2-gram的BLEU分数
-        bleu_score = sentence_bleu([reference_tokenized], candidate_tokenized, weights=(0.5, 0.5, 0, 0))
+        bleu_score = sentence_bleu(
+            [reference_tokenized], candidate_tokenized, weights=(0.5, 0.5, 0, 0))
         bleu_score_list.append(bleu_score)
 
     return bleu_score_list
+
 
 if __name__ == "__main__":
     # 读取英文及其翻译
@@ -171,5 +190,6 @@ if __name__ == "__main__":
     bleu_score_llama2 = eval_bleu_score(zh_origin, zh_trans_llama2)
     bleu_score_atom = eval_bleu_score(zh_origin, zh_trans_atom)
 
-    result_df = pd.DataFrame(columns=['英文原文', '中文原文', 'libre译文', 'llama2译文', 'atom-7B译文', 'bleu_score_libre', 'bleu_score_llama2', 'bleu_score_atom-7B'], data=list(zip(en_origin, zh_origin, zh_trans_libre, zh_trans_llama2, zh_trans_atom, bleu_score_libre, bleu_score_llama2, bleu_score_atom)))
+    result_df = pd.DataFrame(columns=['英文原文', '中文原文', 'libre译文', 'llama2译文', 'atom-7B译文', 'bleu_score_libre', 'bleu_score_llama2', 'bleu_score_atom-7B'],
+                             data=list(zip(en_origin, zh_origin, zh_trans_libre, zh_trans_llama2, zh_trans_atom, bleu_score_libre, bleu_score_llama2, bleu_score_atom)))
     result_df.to_csv('result_df.csv', index=False)
