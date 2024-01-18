@@ -27,8 +27,6 @@ def split_list(input_list, chunk_size):
         yield input_list[i:i + chunk_size]
 
 # 对英文使用libretranslate进行翻译
-
-
 def libre_translate_en(en_txt):
     url = "http://127.0.0.1:5000/translate"
 
@@ -52,9 +50,8 @@ def libre_translate_en(en_txt):
     # 返回译文结果
     return response.json()['translatedText']
 
+
 # 对英文使用llama2进行翻译
-
-
 @retry(wait_fixed=3000, stop_max_attempt_number=3)
 def llama2_translate_en(en_txt):
     url = "https://www.llama2.ai/api"
@@ -88,17 +85,21 @@ def llama2_translate_en(en_txt):
     # 返回译文结果
     return response.text
 
+
+def has_chinese(sentence):
+    # 使用正则表达式匹配中文字符
+    chinese_pattern = re.compile(r'[\u4e00-\u9fa5]')
+    return bool(chinese_pattern.search(sentence))
+
 # 对英文使用llama2中文--Atom-7B进行翻译
-
-
 @retry(wait_fixed=3000, stop_max_attempt_number=3)
 def atom_translate_en(en_txt):
     url = "https://llama.family/serverApi/llama/chat/ask-question"
 
-    sys_prompt = "You're a professional translator who translates English into Chinese. Just reply to the translation and do not answer any other redundant statements.All I'm saying is what I need to translate:\n"
+    sys_prompt = "You're a professional translator who translates English into Chinese. Just reply to the translation and do not answer any other redundant statements.The curly brackets surround is what I need to translate, please translate the following english sentence to chinese: "
     # 请求体
     payload = {
-        "question": sys_prompt+en_txt,
+        "question": sys_prompt+'{'+en_txt.replace('\"', '')+'}',
         "questionId": 0,
         "modelCode": "bdbefed4-03a8-4e32-b650-974246184783",
         "contextQIds": []
@@ -122,9 +123,13 @@ def atom_translate_en(en_txt):
     last_response = json.loads(list(filter(None, response.content.decode(
         'utf-8').split('\n\n')))[-1].replace("id:\nevent:message\ndata:", ""))
     if last_response['status'] == 'FINISH':
-        return json.loads(last_response['answer'])['answer_text']
+        trans_res = json.loads(last_response['answer'])['answer_text']
+        if has_chinese(trans_res):
+            return trans_res
+        else:
+            print(f'输出的翻译不含有中文：{trans_res}')
     else:
-        print(f'翻译出问题了，last_response是{last_response}')
+        print(f'翻译接口出问题了，last_response是{last_response}')
 
 
 # 按行获取文本
@@ -145,8 +150,6 @@ def get_txt_origin(file_path: str):
     return lines
 
 # 评估译文与原文的bleu分数
-
-
 def eval_bleu_score(zh_origin: list, trans_zh: list):
     bleu_score_list = []
 
@@ -174,7 +177,7 @@ if __name__ == "__main__":
     zh_origin = get_txt_origin(Path(zh_origin_path))
 
     # 对英文进行批量翻译
-    en_origin = en_origin[:500]
+    en_origin = en_origin[0:500]
 
     zh_trans_libre = []
     zh_trans_llama2 = []
@@ -193,3 +196,6 @@ if __name__ == "__main__":
     result_df = pd.DataFrame(columns=['英文原文', '中文原文', 'libre译文', 'llama2译文', 'atom-7B译文', 'bleu_score_libre', 'bleu_score_llama2', 'bleu_score_atom-7B'],
                              data=list(zip(en_origin, zh_origin, zh_trans_libre, zh_trans_llama2, zh_trans_atom, bleu_score_libre, bleu_score_llama2, bleu_score_atom)))
     result_df.to_csv('result_df.csv', index=False)
+
+    # atom_df = pd.DataFrame(columns=['atom-7B译文', 'bleu_score_atom-7B'], data=list(zip(zh_trans_atom, bleu_score_atom)))
+    # atom_df.to_csv('atom_df2.csv', index=False)
